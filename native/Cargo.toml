@@ -1,0 +1,11 @@
+[package]
+name = "nautilus-india-symbology"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Canonical Indian instrument-id parser. The Python package is the runtime interface."
+
+[lib]
+path = "src/lib.rs"
+
+[workspace]
