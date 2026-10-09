@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nautilus-india"
+version = "0.1.0"
+description = "Indian market adapter for NautilusTrader, with ClickHouse as the market-data store."
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "nautilus_trader>=1.231.0,<1.232",
+    "clickhouse-connect>=0.8",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+nautilus_india = ["py.typed", "sql/*.sql"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
