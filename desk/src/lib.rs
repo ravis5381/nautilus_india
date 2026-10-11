@@ -7,6 +7,7 @@ mod model;
 mod position;
 #[cfg(test)]
 mod risk;
+mod services;
 mod store;
 
 use std::path::Path;

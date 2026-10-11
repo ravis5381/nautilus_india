@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ThemeToggle } from "@/components/theme-toggle"
 
 import { PositionTable } from "./position-table"
+import { ServicesCard } from "./services-card"
 import { SetPositionCard } from "./set-position-card"
 import { StrategyField } from "./strategy-field"
 import { SummaryCards } from "./summary-cards"
@@ -64,6 +65,8 @@ export function BookPage() {
           />
         </CardContent>
       </Card>
+
+      <ServicesCard onSignOut={() => void book.lock()} />
 
       <SetPositionCard
         strategy={book.selected}

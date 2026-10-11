@@ -26,6 +26,34 @@ export async function fetchPositions(): Promise<Position[]> {
   return response.json() as Promise<Position[]>
 }
 
+export type UnitStatus = {
+  name: string
+  description: string
+  active: string
+  sub: string
+  load: string
+  file_state: string
+  since: string
+  pid: number | null
+}
+
+export type ServiceReport = {
+  available: boolean
+  message: string | null
+  units: UnitStatus[]
+}
+
+export async function fetchServices(): Promise<ServiceReport> {
+  const response = await fetch("/api/services")
+  if (response.status === 401) {
+    throw new SignInRequired()
+  }
+  if (!response.ok) {
+    throw new Error("The service list could not be loaded.")
+  }
+  return response.json() as Promise<ServiceReport>
+}
+
 export async function signOut(): Promise<void> {
   await fetch("/api/logout", { method: "POST" })
 }

@@ -233,6 +233,13 @@ fn normalize_strategy(value: &str) -> Result<String, String> {
     Ok(strategy)
 }
 
+pub fn money(value: Decimal) -> String {
+    format!("{value:.4}")
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::SetPosition;
@@ -252,11 +259,4 @@ mod tests {
             assert_eq!(error, "all is reserved and cannot be set.");
         }
     }
-}
-
-pub fn money(value: Decimal) -> String {
-    format!("{value:.4}")
-        .trim_end_matches('0')
-        .trim_end_matches('.')
-        .to_string()
 }

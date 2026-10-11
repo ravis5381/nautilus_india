@@ -14,6 +14,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::auth::{self, Gate};
 use crate::model::{money, normalize_strategy_name, Position, SetPosition, Side};
+use crate::services::{self, ServiceReport, UnitStatus};
 use crate::store::{Desk, DeskError};
 
 pub type Shared = Arc<Mutex<Desk>>;
@@ -25,10 +26,11 @@ pub type Shared = Arc<Mutex<Desk>>;
         version = "0.1.0",
         description = "Position book. Each strategy keeps its own quantity for an instrument."
     ),
-    paths(positions, set_positions, login, logout),
-    components(schemas(PositionBody, SetPosition, LoginBody, ErrorBody, Side)),
+    paths(positions, set_positions, services::services, login, logout),
+    components(schemas(PositionBody, SetPosition, LoginBody, ErrorBody, Side, ServiceReport, UnitStatus)),
     tags(
         (name = "positions", description = "Strategy books"),
+        (name = "services", description = "systemd units named in DESK_UNITS"),
         (name = "session", description = "Desk sign-in")
     )
 )]
@@ -52,6 +54,7 @@ pub fn router(desk: Shared, password: String) -> Router {
         .route("/login", post(login))
         .route("/logout", post(logout))
         .route("/positions", get(positions).put(set_positions))
+        .route("/services", get(services::services))
         .fallback(api_missing);
 
     Router::new()
@@ -305,6 +308,7 @@ mod tests {
         assert!(positions.get.is_some());
         assert!(positions.put.is_some());
         assert!(paths.get("/api/login").unwrap().post.is_some());
+        assert!(paths.get("/api/services").unwrap().get.is_some());
         assert!(!paths.contains_key("/api/orders"));
         assert!(!paths.contains_key("/api/fills"));
     }
