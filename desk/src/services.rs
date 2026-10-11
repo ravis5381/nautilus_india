@@ -1,10 +1,15 @@
 use std::process::Command;
+use std::time::Duration;
 
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::response::IntoResponse;
 use axum::Json;
 use serde::Serialize;
 use utoipa::ToSchema;
 
-#[derive(Debug, Serialize, ToSchema, PartialEq, Eq)]
+const CHECK_EVERY: Duration = Duration::from_secs(2);
+
+#[derive(Debug, Clone, Serialize, ToSchema, PartialEq, Eq)]
 pub struct ServiceReport {
     /// False when systemctl cannot be run on this machine.
     pub available: bool,
@@ -12,7 +17,7 @@ pub struct ServiceReport {
     pub units: Vec<UnitStatus>,
 }
 
-#[derive(Debug, Serialize, ToSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, ToSchema, PartialEq, Eq)]
 pub struct UnitStatus {
     pub name: String,
     pub description: String,
@@ -31,11 +36,56 @@ pub struct UnitStatus {
     responses((status = 200, description = "Status of the systemd units named in DESK_UNITS", body = ServiceReport))
 )]
 pub async fn services() -> Json<ServiceReport> {
+    Json(read_report().await)
+}
+
+pub async fn watch(upgrade: WebSocketUpgrade) -> impl IntoResponse {
+    upgrade.on_upgrade(push_status)
+}
+
+async fn push_status(mut socket: WebSocket) {
+    let mut previous = None;
+    loop {
+        let report = read_report().await;
+        if previous.as_ref() != Some(&report) {
+            let Ok(payload) = serde_json::to_string(&report) else {
+                break;
+            };
+            if socket.send(Message::Text(payload.into())).await.is_err() {
+                break;
+            }
+            previous = Some(report);
+        }
+        if !pause(&mut socket).await {
+            break;
+        }
+    }
+}
+
+async fn pause(socket: &mut WebSocket) -> bool {
+    let sleep = tokio::time::sleep(CHECK_EVERY);
+    tokio::pin!(sleep);
+    loop {
+        tokio::select! {
+            message = socket.recv() => match message {
+                Some(Ok(Message::Close(_))) | None | Some(Err(_)) => return false,
+                Some(Ok(Message::Ping(payload))) => {
+                    if socket.send(Message::Pong(payload)).await.is_err() {
+                        return false;
+                    }
+                }
+                Some(Ok(_)) => {}
+            },
+            () = &mut sleep => return true,
+        }
+    }
+}
+
+async fn read_report() -> ServiceReport {
     let units = configured_units();
-    let report = tokio::task::spawn_blocking(move || inspect(&units))
+    tokio::task::spawn_blocking(move || inspect(&units))
         .await
-        .unwrap_or_else(|_| unavailable("The service check stopped."));
-    Json(report)
+        .unwrap_or_else(|_| unavailable("The service check stopped."))
 }
 
 fn configured_units() -> Vec<String> {

@@ -43,6 +43,12 @@ export type ServiceReport = {
   units: UnitStatus[]
 }
 
+export function serviceWatchUrl(): string {
+  const url = new URL("/api/services/watch", window.location.href)
+  url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+  return url.toString()
+}
+
 export async function fetchServices(): Promise<ServiceReport> {
   const response = await fetch("/api/services")
   if (response.status === 401) {

@@ -10,7 +10,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { fetchServices, SignInRequired, type UnitStatus } from "@/lib/api"
+import {
+  fetchServices,
+  serviceWatchUrl,
+  SignInRequired,
+  type ServiceReport,
+  type UnitStatus,
+} from "@/lib/api"
 
 type ServicesCardProps = {
   onSignOut: () => void
@@ -18,7 +24,7 @@ type ServicesCardProps = {
 
 export function ServicesCard({ onSignOut }: ServicesCardProps) {
   const [units, setUnits] = useState<UnitStatus[]>([])
-  const [message, setMessage] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>("Checking services.")
   const signOut = useRef(onSignOut)
 
   useEffect(() => {
@@ -26,32 +32,56 @@ export function ServicesCard({ onSignOut }: ServicesCardProps) {
   }, [onSignOut])
 
   useEffect(() => {
-    let cancelled = false
-    async function load() {
+    let stopped = false
+    let socket: WebSocket | null = null
+    let retry = 0
+
+    const apply = (report: ServiceReport) => {
+      setUnits(report.units)
+      setMessage(report.message)
+    }
+
+    const connect = () => {
+      if (stopped) return
+      const current = new WebSocket(serviceWatchUrl())
+      socket = current
+      current.onmessage = (event) => {
+        try {
+          apply(JSON.parse(String(event.data)) as ServiceReport)
+        } catch {
+          setMessage("The service update could not be read.")
+        }
+      }
+      current.onclose = () => {
+        if (stopped || socket !== current) return
+        void recover()
+      }
+    }
+
+    async function recover() {
       try {
-        const report = await fetchServices()
-        if (cancelled) return
-        setUnits(report.units)
-        setMessage(report.message)
+        apply(await fetchServices())
       } catch (caught) {
-        if (cancelled) return
+        if (stopped) return
         if (caught instanceof SignInRequired) {
           signOut.current()
           return
         }
-        setUnits([])
         setMessage(
           caught instanceof Error
             ? caught.message
             : "The service list could not be loaded.",
         )
       }
+      if (stopped) return
+      retry = window.setTimeout(connect, 2000)
     }
-    void load()
-    const timer = window.setInterval(() => void load(), 5000)
+
+    connect()
     return () => {
-      cancelled = true
-      window.clearInterval(timer)
+      stopped = true
+      window.clearTimeout(retry)
+      socket?.close()
     }
   }, [])
 

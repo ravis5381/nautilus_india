@@ -29,7 +29,7 @@ pub type Shared = Arc<Mutex<Desk>>;
     components(schemas(PositionBody, SetPosition, LoginBody, ErrorBody, Side, ServiceReport, UnitStatus)),
     tags(
         (name = "positions", description = "Strategy books"),
-        (name = "services", description = "systemd units named in DESK_UNITS"),
+        (name = "services", description = "systemd units named in DESK_UNITS. Live updates are pushed on the /api/services/watch WebSocket."),
         (name = "session", description = "Desk sign-in")
     )
 )]
@@ -54,6 +54,7 @@ pub fn router(desk: Shared, password: String) -> Router {
         .route("/logout", post(logout))
         .route("/positions", get(positions).put(set_positions))
         .route("/services", get(services::services))
+        .route("/services/watch", get(services::watch))
         .fallback(api_missing);
 
     Router::new()
@@ -374,13 +375,38 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .uri("/api/positions")
-                    .header("cookie", cookie)
+                    .header("cookie", &cookie)
                     .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
         assert_eq!(open.status(), StatusCode::OK);
+
+        let watch = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/services/watch")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(watch.status(), StatusCode::UNAUTHORIZED);
+
+        let upgrade = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/services/watch")
+                    .header("cookie", cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(upgrade.status(), StatusCode::BAD_REQUEST);
 
         let docs = app
             .oneshot(Request::builder().uri("/docs").body(Body::empty()).unwrap())
