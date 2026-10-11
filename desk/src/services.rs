@@ -132,41 +132,47 @@ fn validate_unit(name: &str) -> Result<(), ()> {
 }
 
 pub fn parse_show(text: &str) -> Vec<UnitStatus> {
-    text.split("\n\n")
-        .filter_map(|block| {
-            let mut status = UnitStatus {
-                name: String::new(),
-                description: String::new(),
-                active: String::new(),
-                sub: String::new(),
-                load: String::new(),
-                file_state: String::new(),
-                since: String::new(),
-                pid: None,
-            };
-            for line in block.lines() {
-                let Some((key, value)) = line.split_once('=') else {
-                    continue;
-                };
-                match key {
-                    "Id" => status.name = value.to_string(),
-                    "Description" => status.description = value.to_string(),
-                    "ActiveState" => status.active = value.to_string(),
-                    "SubState" => status.sub = value.to_string(),
-                    "LoadState" => status.load = value.to_string(),
-                    "UnitFileState" => status.file_state = value.to_string(),
-                    "ActiveEnterTimestamp" if value != "n/a" => status.since = value.to_string(),
-                    "MainPID" => status.pid = value.parse().ok().filter(|pid| *pid > 0),
-                    _ => {}
-                }
-            }
-            if status.name.is_empty() {
-                None
-            } else {
-                Some(status)
-            }
-        })
-        .collect()
+    text.split("\n\n").filter_map(parse_block).collect()
+}
+
+fn parse_block(block: &str) -> Option<UnitStatus> {
+    let mut status = UnitStatus::blank();
+    for line in block.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        match key {
+            "Id" => status.name = value.to_string(),
+            "Description" => status.description = value.to_string(),
+            "ActiveState" => status.active = value.to_string(),
+            "SubState" => status.sub = value.to_string(),
+            "LoadState" => status.load = value.to_string(),
+            "UnitFileState" => status.file_state = value.to_string(),
+            "ActiveEnterTimestamp" if value != "n/a" => status.since = value.to_string(),
+            "MainPID" => status.pid = value.parse().ok().filter(|pid| *pid > 0),
+            _ => {}
+        }
+    }
+    if status.name.is_empty() {
+        None
+    } else {
+        Some(status)
+    }
+}
+
+impl UnitStatus {
+    fn blank() -> Self {
+        Self {
+            name: String::new(),
+            description: String::new(),
+            active: String::new(),
+            sub: String::new(),
+            load: String::new(),
+            file_state: String::new(),
+            since: String::new(),
+            pid: None,
+        }
+    }
 }
 
 #[cfg(test)]

@@ -44,6 +44,8 @@ export function BookPage() {
         </p>
       </header>
 
+      <ServicesCard onSignOut={() => void book.lock()} />
+
       <SummaryCards rows={book.rows} status={book.status} />
 
       <Card>
@@ -65,8 +67,6 @@ export function BookPage() {
           />
         </CardContent>
       </Card>
-
-      <ServicesCard onSignOut={() => void book.lock()} />
 
       <SetPositionCard
         strategy={book.selected}
