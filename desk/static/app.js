@@ -7,8 +7,18 @@ const message = document.querySelector("#ticket-message");
 const submit = form.querySelector("button");
 const strategyInput = form.elements.strategy;
 const strategyList = document.querySelector("#strategies");
+const bookStrategy = document.querySelector("#book-strategy");
 const storedStrategy = localStorage.getItem("desk.strategy");
 if (storedStrategy) strategyInput.value = storedStrategy;
+
+let selectedBook = localStorage.getItem("desk.bookStrategy") || "";
+let latest = { book: [], orders: [], fills: [] };
+
+bookStrategy.addEventListener("change", () => {
+  selectedBook = bookStrategy.value;
+  localStorage.setItem("desk.bookStrategy", selectedBook);
+  paint();
+});
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -35,6 +45,8 @@ form.addEventListener("submit", async (event) => {
     } else {
       const order = payload.order;
       localStorage.setItem("desk.strategy", order.strategy);
+      selectedBook = order.strategy;
+      localStorage.setItem("desk.bookStrategy", selectedBook);
       message.textContent = `Forwarded ${order.side} ${order.quantity} ${order.instrument_id} at ${order.price} into ${order.strategy} through the ${order.gateway} gateway.`;
       message.dataset.tone = "good";
     }
@@ -53,11 +65,33 @@ async function refresh() {
     getJson("/api/orders"),
     getJson("/api/fills"),
   ]);
-  renderSummary(book);
-  renderPositions(book);
-  renderOrders(orderRows);
-  renderFills(fillRows);
+  latest = { book, orders: orderRows, fills: fillRows };
+  fillStrategyPicker(book);
+  paint();
   rememberStrategies(book, orderRows);
+}
+
+function paint() {
+  const rows = latest.book.filter((row) => row.strategy === selectedBook);
+  renderSummary(rows);
+  renderPositions(rows);
+  renderOrders(latest.orders);
+  renderFills(latest.fills);
+}
+
+function fillStrategyPicker(book) {
+  const names = [...new Set(book.filter((row) => row.quantity !== 0).map((row) => row.strategy))].sort();
+  if (names.length === 0) {
+    bookStrategy.disabled = true;
+    bookStrategy.innerHTML = `<option value="">No open strategies</option>`;
+    selectedBook = "";
+    return;
+  }
+  bookStrategy.disabled = false;
+  bookStrategy.innerHTML = names.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
+  if (!names.includes(selectedBook)) selectedBook = names[0];
+  bookStrategy.value = selectedBook;
+  localStorage.setItem("desk.bookStrategy", selectedBook);
 }
 
 async function getJson(url) {
@@ -68,46 +102,36 @@ async function getJson(url) {
   return response.json();
 }
 
-function renderSummary(book) {
-  const open = book.filter((row) => row.quantity !== 0);
-  const strategies = new Set(open.map((row) => row.strategy)).size;
-  const realized = book.reduce((total, row) => total + Number(row.realized_pnl), 0);
+function renderSummary(rows) {
+  const open = rows.filter((row) => row.quantity !== 0);
+  const net = open.reduce((total, row) => total + row.quantity, 0);
+  const realized = rows.reduce((total, row) => total + Number(row.realized_pnl), 0);
   summary.innerHTML = `
-    <article><span class="eyebrow">Strategies</span><strong>${strategies}</strong></article>
     <article><span class="eyebrow">Open names</span><strong>${open.length}</strong></article>
+    <article><span class="eyebrow">Net quantity</span><strong>${net}</strong></article>
     <article><span class="eyebrow">Realized PnL</span><strong class="${realized < 0 ? "short" : "long"}">${formatNumber(realized)}</strong></article>
   `;
 }
 
-function renderPositions(book) {
-  const open = book.filter((row) => row.quantity !== 0);
-  if (open.length === 0) {
+function renderPositions(rows) {
+  const open = rows.filter((row) => row.quantity !== 0);
+  if (!selectedBook) {
     positions.innerHTML = `<p class="empty">No open position. A fill from the gateway will appear here.</p>`;
     return;
   }
-  const groups = new Map();
-  for (const row of open) {
-    if (!groups.has(row.strategy)) groups.set(row.strategy, []);
-    groups.get(row.strategy).push(row);
+  if (open.length === 0) {
+    positions.innerHTML = `<p class="empty">No open position in ${escapeHtml(selectedBook)}.</p>`;
+    return;
   }
-  positions.innerHTML = [...groups.entries()]
-    .map(
-      ([strategy, rows]) => `
-        <section class="strategy-group">
-          <h3>${escapeHtml(strategy)}</h3>
-          ${table(
-            ["Instrument", "Side", "Quantity", "Average", "Realized"],
-            rows.map((row) => [
-              mono(row.instrument_id),
-              sideLabel(row.quantity),
-              signed(row.quantity),
-              row.avg_price,
-              row.realized_pnl,
-            ]),
-          )}
-        </section>`,
-    )
-    .join("");
+  positions.innerHTML = table(
+    ["Instrument", "Quantity", "Average", "Realized"],
+    open.map((row) => [
+      mono(row.instrument_id),
+      signed(row.quantity),
+      row.avg_price,
+      row.realized_pnl,
+    ]),
+  );
 }
 
 function renderOrders(rows) {
@@ -116,13 +140,12 @@ function renderOrders(rows) {
     return;
   }
   orders.innerHTML = table(
-    ["Time", "Strategy", "Instrument", "Side", "Qty", "Price", "Status"],
+    ["Time", "Strategy", "Instrument", "Qty", "Price", "Status"],
     rows.map((row) => [
       time(row.created_at),
       escapeHtml(row.strategy),
       mono(row.instrument_id),
-      sideText(row.side),
-      String(row.quantity),
+      signed(directed(row.side, row.quantity)),
       row.price,
       `${row.status}${row.reason ? `<span class="reason">${escapeHtml(row.reason)}</span>` : `<span class="eyebrow">${escapeHtml(row.gateway)}</span>`}`,
     ]),
@@ -135,13 +158,12 @@ function renderFills(rows) {
     return;
   }
   fills.innerHTML = table(
-    ["Time", "Strategy", "Instrument", "Side", "Qty", "Price"],
+    ["Time", "Strategy", "Instrument", "Qty", "Price"],
     rows.map((row) => [
       time(row.filled_at),
       escapeHtml(row.strategy),
       mono(row.instrument_id),
-      sideText(row.side),
-      String(row.quantity),
+      signed(directed(row.side, row.quantity)),
       row.price,
     ]),
   );
@@ -166,14 +188,8 @@ function table(headers, rows) {
   return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }
 
-function sideLabel(quantity) {
-  if (quantity > 0) return `<span class="long">Long</span>`;
-  if (quantity < 0) return `<span class="short">Short</span>`;
-  return "Flat";
-}
-
-function sideText(side) {
-  return side === "BUY" ? `<span class="long">Buy</span>` : `<span class="short">Sell</span>`;
+function directed(side, quantity) {
+  return side === "SELL" ? -quantity : quantity;
 }
 
 function signed(quantity) {

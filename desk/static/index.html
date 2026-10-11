@@ -12,19 +12,28 @@
         <p class="eyebrow">India desk</p>
         <h1>Positions</h1>
       </div>
-      <p class="lede">
-        An order is checked on this desk, recorded, and forwarded to the broker.
-        The book changes when that gateway reports a fill.
-      </p>
+      <div>
+        <p class="lede">
+          An order is checked on this desk, recorded, and forwarded to the broker.
+          The book changes when that gateway reports a fill.
+        </p>
+        <a class="docs-link" href="/docs">API docs</a>
+      </div>
     </header>
 
     <section class="summary" id="summary" aria-live="polite"></section>
 
     <main>
       <section class="panel book">
-        <div class="panel-head">
-          <h2>Open book</h2>
-          <p>Each strategy keeps its own quantity for the same instrument.</p>
+        <div class="panel-head book-head">
+          <div>
+            <h2>Open book</h2>
+            <p>Each strategy keeps its own quantity for the same instrument.</p>
+          </div>
+          <label class="strategy-picker">
+            Strategy
+            <select id="book-strategy"></select>
+          </label>
         </div>
         <div id="positions"></div>
       </section>

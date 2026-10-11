@@ -60,6 +60,11 @@ h2 { font-size: 1.45rem; }
   margin: 0;
   color: var(--muted);
 }
+.docs-link {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--accent);
+}
 
 .summary {
   display: grid;
@@ -93,11 +98,26 @@ main { grid-template-columns: 1.5fr 0.9fr; }
 
 .panel { padding: 18px; }
 .panel-head { margin-bottom: 14px; }
-.strategy-group + .strategy-group { margin-top: 18px; }
-.strategy-group h3 {
-  margin: 0 0 8px;
-  font-size: 1rem;
-  font-weight: 600;
+.book-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 16px;
+}
+.strategy-picker {
+  min-width: 12rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+#book-strategy {
+  width: 14rem;
+  color: var(--ink);
+  font-size: 0.95rem;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 form { display: grid; gap: 12px; }
@@ -154,4 +174,6 @@ td {
   header, main, .blotter, .summary { display: grid; grid-template-columns: 1fr; }
   header { align-items: start; padding-top: 24px; }
   h1 { font-size: 2.4rem; }
+  .book-head { flex-direction: column; align-items: stretch; }
+  #book-strategy { width: 100%; }
 }

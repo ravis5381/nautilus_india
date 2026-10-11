@@ -51,6 +51,7 @@ pub struct Desk {
     broker: Box<dyn BrokerGateway>,
 }
 
+#[derive(Debug)]
 pub struct Submission {
     pub order: Order,
     pub fill: Option<Fill>,
@@ -68,6 +69,7 @@ impl Desk {
         Self::from_conn(Connection::open(path)?, RiskPipeline::default(), Box::new(PaperBroker))
     }
 
+    #[cfg(test)]
     pub fn open_in_memory() -> Result<Self, DeskError> {
         Self::from_conn(
             Connection::open_in_memory()?,
@@ -128,12 +130,47 @@ impl Desk {
     }
 
     pub fn positions(&self) -> Result<Vec<Position>, DeskError> {
+        self.query_positions(None)
+    }
+
+    pub fn positions_for_strategy(&self, strategy: &str) -> Result<Vec<Position>, DeskError> {
+        self.query_positions(Some(strategy))
+    }
+
+    pub fn set_positions(&mut self, positions: Vec<Position>) -> Result<Vec<Position>, DeskError> {
+        let tx = self.conn.transaction()?;
+        let updated_at = Utc::now().to_rfc3339();
+        for position in &positions {
+            tx.execute(
+                "INSERT INTO positions (strategy, instrument_id, quantity, avg_price, realized_pnl, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(strategy, instrument_id) DO UPDATE SET
+                    quantity = excluded.quantity,
+                    avg_price = excluded.avg_price,
+                    realized_pnl = excluded.realized_pnl,
+                    updated_at = excluded.updated_at",
+                params![
+                    position.strategy,
+                    position.instrument_id,
+                    position.quantity,
+                    money(position.avg_price),
+                    money(position.realized_pnl),
+                    updated_at,
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(positions)
+    }
+
+    fn query_positions(&self, strategy: Option<&str>) -> Result<Vec<Position>, DeskError> {
         let mut statement = self.conn.prepare(
             "SELECT strategy, instrument_id, quantity, avg_price, realized_pnl
              FROM positions
+             WHERE (?1 IS NULL OR strategy = ?1)
              ORDER BY strategy, instrument_id",
         )?;
-        let rows = statement.query_map([], |row| {
+        let rows = statement.query_map(params![strategy], |row| {
             Ok(Position {
                 strategy: row.get(0)?,
                 instrument_id: row.get(1)?,
@@ -482,5 +519,43 @@ mod tests {
             .unwrap_err();
         assert!(matches!(error, DeskError::Invalid(_)));
         assert!(desk.orders().unwrap().is_empty());
+    }
+
+    #[test]
+    fn set_positions_writes_one_strategy_without_changing_another() {
+        let mut desk = Desk::open_in_memory().unwrap();
+        desk.set_positions(vec![
+            set_row("opening-drive", "reliance.nse", 10, "2450", "0"),
+            set_row("hedge", "RELIANCE.NSE", -4, "2460", "12.5"),
+        ])
+        .unwrap();
+        desk.set_positions(vec![set_row("opening-drive", "RELIANCE.NSE", 7, "2455", "40")])
+            .unwrap();
+
+        let opening = desk.positions_for_strategy("opening-drive").unwrap();
+        assert_eq!(opening.len(), 1);
+        assert_eq!(opening[0].instrument_id, "RELIANCE.NSE");
+        assert_eq!(opening[0].quantity, 7);
+        let hedge = desk.positions_for_strategy("hedge").unwrap();
+        assert_eq!(hedge.len(), 1);
+        assert_eq!(hedge[0].quantity, -4);
+    }
+
+    fn set_row(
+        strategy: &str,
+        instrument_id: &str,
+        quantity: i64,
+        avg_price: &str,
+        realized_pnl: &str,
+    ) -> Position {
+        crate::model::SetPosition {
+            strategy: strategy.into(),
+            instrument_id: instrument_id.into(),
+            quantity,
+            avg_price: avg_price.into(),
+            realized_pnl: realized_pnl.into(),
+        }
+        .parse()
+        .unwrap()
     }
 }

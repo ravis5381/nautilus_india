@@ -1,26 +1,58 @@
 use std::sync::{Arc, Mutex};
 
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use utoipa::{IntoParams, OpenApi, ToSchema};
+use utoipa_swagger_ui::SwaggerUi;
 
-use crate::model::{money, CreateOrder, Fill, Order, OrderStatus, Position, Side};
+use crate::model::{
+    money, normalize_strategy_name, CreateOrder, Fill, Order, OrderStatus, Position, SetPosition, Side,
+};
 use crate::store::{Desk, DeskError, Submission};
 
 pub type Shared = Arc<Mutex<Desk>>;
+
+#[derive(OpenApi)]
+#[openapi(
+    info(
+        title = "India desk",
+        version = "0.1.0",
+        description = "Position book and order gateway. Each strategy keeps its own quantity for an instrument. The book changes when the gateway reports a fill."
+    ),
+    paths(positions, set_positions, orders, create_order, fills),
+    components(schemas(
+        PositionBody,
+        SetPosition,
+        OrderBody,
+        FillBody,
+        SubmissionBody,
+        CreateOrder,
+        ErrorBody,
+        Side,
+        OrderStatus
+    )),
+    tags(
+        (name = "positions", description = "Strategy books"),
+        (name = "orders", description = "Orders forwarded to the gateway"),
+        (name = "fills", description = "Executions reported by the gateway")
+    )
+)]
+struct ApiDoc;
 
 pub fn router(desk: Shared) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/app.css", get(css))
         .route("/app.js", get(javascript))
-        .route("/api/positions", get(positions))
+        .route("/api/positions", get(positions).put(set_positions))
         .route("/api/orders", get(orders).post(create_order))
         .route("/api/fills", get(fills))
         .with_state(desk)
+        .merge(SwaggerUi::new("/docs").url("/api/openapi.json", ApiDoc::openapi()))
 }
 
 async fn index() -> Response {
@@ -46,24 +78,122 @@ fn asset(body: &'static str, content_type: &'static str) -> Response {
         .into_response()
 }
 
-async fn positions(State(desk): State<Shared>) -> Result<Json<Vec<PositionBody>>, ApiError> {
-    let desk = lock(&desk)?;
-    let rows = desk.positions()?.into_iter().map(PositionBody::from).collect();
-    Ok(Json(rows))
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+struct PositionQuery {
+    /// Strategy identifier. Omit it to return every strategy book.
+    strategy: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/positions",
+    tag = "positions",
+    params(PositionQuery),
+    responses(
+        (status = 200, description = "Positions for one strategy, or every strategy when the identifier is omitted", body = Vec<PositionBody>),
+        (status = 422, description = "The strategy identifier is not valid", body = ErrorBody),
+        (status = 500, description = "The book could not be read", body = ErrorBody)
+    )
+)]
+async fn positions(
+    State(desk): State<Shared>,
+    Query(query): Query<PositionQuery>,
+) -> Result<Json<Vec<PositionBody>>, ApiError> {
+    let desk = lock(&desk)?;
+    let rows = match query.strategy {
+        Some(strategy) => {
+            let strategy = normalize_strategy_name(&strategy).map_err(DeskError::Invalid)?;
+            desk.positions_for_strategy(&strategy)?
+        }
+        None => desk.positions()?,
+    };
+    Ok(Json(rows.into_iter().map(PositionBody::from).collect()))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/positions",
+    tag = "positions",
+    request_body = Vec<SetPosition>,
+    responses(
+        (status = 200, description = "The listed positions were written. Other strategy books are left as they are", body = Vec<PositionBody>),
+        (status = 422, description = "A strategy identifier, instrument, or price is not valid", body = ErrorBody),
+        (status = 500, description = "The book could not be written", body = ErrorBody)
+    )
+)]
+async fn set_positions(
+    State(desk): State<Shared>,
+    Json(input): Json<Vec<SetPosition>>,
+) -> Result<Json<Vec<PositionBody>>, ApiError> {
+    let positions = parse_set(input).map_err(DeskError::Invalid)?;
+    let mut desk = lock(&desk)?;
+    let stored = desk.set_positions(positions)?;
+    Ok(Json(stored.into_iter().map(PositionBody::from).collect()))
+}
+
+fn parse_set(rows: Vec<SetPosition>) -> Result<Vec<Position>, String> {
+    if rows.is_empty() {
+        return Err("At least one position is required.".into());
+    }
+    let mut parsed = Vec::with_capacity(rows.len());
+    let mut seen = std::collections::BTreeSet::new();
+    for row in rows {
+        let position = row.parse()?;
+        let key = (position.strategy.clone(), position.instrument_id.clone());
+        if !seen.insert(key) {
+            return Err(format!(
+                "{} is listed more than once for {}.",
+                position.instrument_id, position.strategy
+            ));
+        }
+        parsed.push(position);
+    }
+    Ok(parsed)
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/orders",
+    tag = "orders",
+    responses(
+        (status = 200, description = "Orders newest first, including ones the desk refused to forward", body = Vec<OrderBody>),
+        (status = 500, description = "The book could not be read", body = ErrorBody)
+    )
+)]
 async fn orders(State(desk): State<Shared>) -> Result<Json<Vec<OrderBody>>, ApiError> {
     let desk = lock(&desk)?;
     let rows = desk.orders()?.into_iter().map(OrderBody::from).collect();
     Ok(Json(rows))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/fills",
+    tag = "fills",
+    responses(
+        (status = 200, description = "Fills newest first", body = Vec<FillBody>),
+        (status = 500, description = "The book could not be read", body = ErrorBody)
+    )
+)]
 async fn fills(State(desk): State<Shared>) -> Result<Json<Vec<FillBody>>, ApiError> {
     let desk = lock(&desk)?;
     let rows = desk.fills()?.into_iter().map(FillBody::from).collect();
     Ok(Json(rows))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/orders",
+    tag = "orders",
+    request_body = CreateOrder,
+    responses(
+        (status = 201, description = "The gateway filled the order and the strategy book was updated", body = SubmissionBody),
+        (status = 422, description = "The order failed validation or a risk check", body = ErrorBody),
+        (status = 502, description = "The gateway refused the order", body = ErrorBody),
+        (status = 500, description = "The book could not be written", body = ErrorBody)
+    )
+)]
 async fn create_order(
     State(desk): State<Shared>,
     Json(input): Json<CreateOrder>,
@@ -77,7 +207,7 @@ fn lock(desk: &Shared) -> Result<std::sync::MutexGuard<'_, Desk>, ApiError> {
     desk.lock().map_err(|_| ApiError::storage("The position book lock was poisoned."))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 struct PositionBody {
     strategy: String,
     instrument_id: String,
@@ -101,7 +231,7 @@ impl From<Position> for PositionBody {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 struct OrderBody {
     id: String,
     strategy: String,
@@ -132,7 +262,7 @@ impl From<Order> for OrderBody {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 struct FillBody {
     id: String,
     order_id: String,
@@ -159,7 +289,7 @@ impl From<Fill> for FillBody {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 struct SubmissionBody {
     order: OrderBody,
     fill: Option<FillBody>,
@@ -174,6 +304,11 @@ impl From<Submission> for SubmissionBody {
             position: submission.position.map(PositionBody::from),
         }
     }
+}
+
+#[derive(Serialize, ToSchema)]
+struct ErrorBody {
+    error: String,
 }
 
 struct ApiError {
@@ -204,9 +339,28 @@ impl From<DeskError> for ApiError {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::ApiDoc;
+    use utoipa::OpenApi;
+
+    #[test]
+    fn openapi_lists_the_book_routes() {
+        let spec = ApiDoc::openapi();
+        let paths = &spec.paths.paths;
+        let positions = paths.get("/api/positions").expect("positions path");
+        assert!(positions.get.is_some());
+        assert!(positions.put.is_some());
+        assert!(paths.contains_key("/api/fills"));
+        let orders = paths.get("/api/orders").expect("orders path");
+        assert!(orders.get.is_some());
+        assert!(orders.post.is_some());
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let body = Json(serde_json::json!({ "error": self.message }));
+        let body = Json(ErrorBody { error: self.message });
         (self.status, body).into_response()
     }
 }

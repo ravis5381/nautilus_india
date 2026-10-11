@@ -27,6 +27,6 @@ impl RiskPipeline {
 
 impl Default for RiskPipeline {
     fn default() -> Self {
-        Self { checks: Vec::new() }
+        Self::new(Vec::new())
     }
 }
