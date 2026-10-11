@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::path::PathBuf;
 
 use india_desk::router;
@@ -5,6 +6,11 @@ use india_desk::router;
 #[tokio::main]
 async fn main() {
     load_env_file();
+    let host = std::env::var("DESK_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+    let address = host.parse::<IpAddr>().unwrap_or_else(|_| {
+        eprintln!("DESK_HOST {host:?} is not an IP address.");
+        std::process::exit(1);
+    });
     let port = std::env::var("DESK_PORT")
         .ok()
         .and_then(|value| value.parse::<u16>().ok())
@@ -30,17 +36,27 @@ async fn main() {
         eprintln!("Could not open the position book at {database}: {error}");
         std::process::exit(1);
     });
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
+    let listener = tokio::net::TcpListener::bind((address, port))
         .await
         .unwrap_or_else(|error| {
-            eprintln!("Could not listen on 127.0.0.1:{port}: {error}");
+            eprintln!("Could not listen on {address}:{port}: {error}");
             std::process::exit(1);
         });
-    println!("Desk is at http://127.0.0.1:{port}");
+    println!("Desk is at {}", listen_url(address, port));
+    if address.is_unspecified() {
+        println!("Other machines on the LAN use this computer's own address and port {port}.");
+    }
     axum::serve(listener, app).await.unwrap_or_else(|error| {
         eprintln!("Desk stopped: {error}");
         std::process::exit(1);
     });
+}
+
+fn listen_url(address: IpAddr, port: u16) -> String {
+    match address {
+        IpAddr::V6(ip) => format!("http://[{ip}]:{port}"),
+        IpAddr::V4(ip) => format!("http://{ip}:{port}"),
+    }
 }
 
 fn load_env_file() {
