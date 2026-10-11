@@ -8,6 +8,7 @@ dist/
 build/
 *.egg-info/
 target/
+node_modules/
 desk/data/
 .env
 catalog/

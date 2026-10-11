@@ -1,6 +1,7 @@
 use std::fmt;
 use std::str::FromStr;
 
+#[cfg(test)]
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,7 @@ pub enum Side {
 }
 
 impl Side {
+    #[cfg(test)]
     pub fn sign(self) -> i64 {
         match self {
             Self::Buy => 1,
@@ -31,6 +33,7 @@ impl fmt::Display for Side {
     }
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ToSchema)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum OrderStatus {
@@ -38,6 +41,7 @@ pub enum OrderStatus {
     Rejected,
 }
 
+#[cfg(test)]
 impl fmt::Display for OrderStatus {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -57,6 +61,7 @@ pub struct Position {
 }
 
 impl Position {
+    #[cfg(test)]
     pub fn new(strategy: impl Into<String>, instrument_id: impl Into<String>) -> Self {
         Self {
             strategy: strategy.into(),
@@ -76,6 +81,7 @@ impl Position {
     }
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug)]
 pub struct OrderRequest {
     pub strategy: String,
@@ -85,6 +91,7 @@ pub struct OrderRequest {
     pub price: Decimal,
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug)]
 pub struct Order {
     pub id: String,
@@ -99,6 +106,7 @@ pub struct Order {
     pub created_at: DateTime<Utc>,
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug)]
 pub struct Fill {
     pub id: String,
@@ -111,6 +119,7 @@ pub struct Fill {
     pub filled_at: DateTime<Utc>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateOrder {
     /// Book that keeps this instrument separate from the same name in other strategies.
@@ -128,6 +137,7 @@ pub struct CreateOrder {
     pub price: String,
 }
 
+#[cfg(test)]
 impl CreateOrder {
     pub fn parse(self) -> Result<OrderRequest, String> {
         let strategy = normalize_strategy(&self.strategy)?;

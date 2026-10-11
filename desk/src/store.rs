@@ -1,14 +1,23 @@
 use std::path::Path;
 use std::str::FromStr;
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use rusqlite::{params, Connection};
 use rust_decimal::Decimal;
+
+#[cfg(test)]
+use chrono::DateTime;
+#[cfg(test)]
 use uuid::Uuid;
 
+#[cfg(test)]
 use crate::broker::{BrokerGateway, PaperBroker};
-use crate::model::{money, CreateOrder, Fill, Order, OrderStatus, Position, Side};
+use crate::model::{money, Position};
+#[cfg(test)]
+use crate::model::{CreateOrder, Fill, Order, OrderStatus, Side};
+#[cfg(test)]
 use crate::position::apply_fill;
+#[cfg(test)]
 use crate::risk::RiskPipeline;
 
 const SCHEMA: &str = "
@@ -47,13 +56,17 @@ CREATE TABLE IF NOT EXISTS positions (
 
 pub struct Desk {
     conn: Connection,
+    #[cfg(test)]
     risk: RiskPipeline,
+    #[cfg(test)]
     broker: Box<dyn BrokerGateway>,
 }
 
+#[cfg(test)]
 #[derive(Debug)]
 pub struct Submission {
     pub order: Order,
+    #[allow(dead_code)]
     pub fill: Option<Fill>,
     pub position: Option<Position>,
 }
@@ -66,11 +79,7 @@ impl Desk {
                 std::fs::create_dir_all(parent)?;
             }
         }
-        Self::from_conn(
-            Connection::open(path)?,
-            RiskPipeline::default(),
-            Box::new(PaperBroker),
-        )
+        Self::connect(Connection::open(path)?)
     }
 
     #[cfg(test)]
@@ -82,6 +91,18 @@ impl Desk {
         )
     }
 
+    fn connect(conn: Connection) -> Result<Self, DeskError> {
+        conn.execute_batch(SCHEMA)?;
+        Ok(Self {
+            conn,
+            #[cfg(test)]
+            risk: RiskPipeline::default(),
+            #[cfg(test)]
+            broker: Box::new(PaperBroker),
+        })
+    }
+
+    #[cfg(test)]
     pub fn from_conn(
         conn: Connection,
         risk: RiskPipeline,
@@ -91,6 +112,7 @@ impl Desk {
         Ok(Self { conn, risk, broker })
     }
 
+    #[cfg(test)]
     pub fn submit(&mut self, input: CreateOrder) -> Result<Submission, DeskError> {
         let request = input.parse().map_err(DeskError::Invalid)?;
         let now = Utc::now();
@@ -186,6 +208,7 @@ impl Desk {
         rows.collect::<Result<Vec<_>, _>>().map_err(DeskError::from)
     }
 
+    #[cfg(test)]
     pub fn orders(&self) -> Result<Vec<Order>, DeskError> {
         let mut statement = self.conn.prepare(
             "SELECT id, strategy, instrument_id, side, quantity, price, status, gateway, reason, created_at
@@ -214,6 +237,7 @@ impl Desk {
         rows.collect::<Result<Vec<_>, _>>().map_err(DeskError::from)
     }
 
+    #[cfg(test)]
     pub fn fills(&self) -> Result<Vec<Fill>, DeskError> {
         let mut statement = self.conn.prepare(
             "SELECT id, order_id, strategy, instrument_id, side, quantity, price, filled_at
@@ -239,6 +263,7 @@ impl Desk {
         rows.collect::<Result<Vec<_>, _>>().map_err(DeskError::from)
     }
 
+    #[cfg(test)]
     fn apply_and_store(&mut self, order: &Order, fill: &Fill) -> Result<Position, DeskError> {
         let tx = self.conn.transaction()?;
         insert_order(&tx, order)?;
@@ -280,11 +305,13 @@ impl Desk {
         Ok(position)
     }
 
+    #[cfg(test)]
     fn insert_order(&mut self, order: &Order) -> Result<(), DeskError> {
         insert_order(&self.conn, order)
     }
 }
 
+#[cfg(test)]
 fn insert_order(conn: &Connection, order: &Order) -> Result<(), DeskError> {
     conn.execute(
         "INSERT INTO orders
@@ -306,6 +333,7 @@ fn insert_order(conn: &Connection, order: &Order) -> Result<(), DeskError> {
     Ok(())
 }
 
+#[cfg(test)]
 fn load_position(
     conn: &Connection,
     strategy: &str,
@@ -333,6 +361,7 @@ fn parse_decimal(value: &str) -> Decimal {
     Decimal::from_str(value).unwrap_or(Decimal::ZERO)
 }
 
+#[cfg(test)]
 fn parse_side(value: &str) -> Side {
     if value == "SELL" {
         Side::Sell
@@ -341,6 +370,7 @@ fn parse_side(value: &str) -> Side {
     }
 }
 
+#[cfg(test)]
 fn parse_status(value: &str) -> OrderStatus {
     if value == "FILLED" {
         OrderStatus::Filled

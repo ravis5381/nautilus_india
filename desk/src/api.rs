@@ -1,19 +1,18 @@
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use axum::extract::{Query, State};
-use axum::http::{header, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use tower_http::services::{ServeDir, ServeFile};
 use utoipa::{IntoParams, OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::model::{
-    money, normalize_strategy_name, CreateOrder, Fill, Order, OrderStatus, Position, SetPosition,
-    Side,
-};
-use crate::store::{Desk, DeskError, Submission};
+use crate::model::{money, normalize_strategy_name, Position, SetPosition, Side};
+use crate::store::{Desk, DeskError};
 
 pub type Shared = Arc<Mutex<Desk>>;
 
@@ -22,67 +21,58 @@ pub type Shared = Arc<Mutex<Desk>>;
     info(
         title = "India desk",
         version = "0.1.0",
-        description = "Position book and order gateway. Each strategy keeps its own quantity for an instrument. The book changes when the gateway reports a fill."
+        description = "Position book. Each strategy keeps its own quantity for an instrument."
     ),
-    paths(positions, set_positions, orders, create_order, fills),
-    components(schemas(
-        PositionBody,
-        SetPosition,
-        OrderBody,
-        FillBody,
-        SubmissionBody,
-        CreateOrder,
-        ErrorBody,
-        Side,
-        OrderStatus
-    )),
-    tags(
-        (name = "positions", description = "Strategy books"),
-        (name = "orders", description = "Orders forwarded to the gateway"),
-        (name = "fills", description = "Executions reported by the gateway")
-    )
+    paths(positions, set_positions),
+    components(schemas(PositionBody, SetPosition, ErrorBody, Side)),
+    tags((name = "positions", description = "Strategy books"))
 )]
 struct ApiDoc;
 
 pub fn router(desk: Shared) -> Router {
+    let dist = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("web/dist");
+    let index = dist.join("index.html");
+    let api = Router::new()
+        .route("/positions", get(positions).put(set_positions))
+        .fallback(api_missing)
+        .with_state(desk);
+
     Router::new()
-        .route("/", get(index))
-        .route("/app.css", get(css))
-        .route("/app.js", get(javascript))
-        .route("/api/positions", get(positions).put(set_positions))
-        .route("/api/orders", get(orders).post(create_order))
-        .route("/api/fills", get(fills))
-        .with_state(desk)
+        .nest("/api", api)
         .merge(SwaggerUi::new("/docs").url("/api/openapi.json", ApiDoc::openapi()))
+        .route("/docs/index.css", get(docs_css))
+        .fallback_service(ServeDir::new(dist).not_found_service(ServeFile::new(index)))
 }
 
-async fn index() -> Response {
-    asset(
-        include_str!("../static/index.html"),
-        "text/html; charset=utf-8",
-    )
+async fn docs_css() -> impl IntoResponse {
+    ([("content-type", "text/css; charset=utf-8")], DOCS_CSS)
 }
 
-async fn css() -> Response {
-    asset(include_str!("../static/app.css"), "text/css; charset=utf-8")
+const DOCS_CSS: &str = r#"
+html {
+    box-sizing: border-box;
+    overflow: -moz-scrollbars-vertical;
+    overflow-y: scroll;
 }
 
-async fn javascript() -> Response {
-    asset(
-        include_str!("../static/app.js"),
-        "text/javascript; charset=utf-8",
-    )
+*,
+*:before,
+*:after {
+    box-sizing: inherit;
 }
 
-fn asset(body: &'static str, content_type: &'static str) -> Response {
-    (
-        [
-            (header::CONTENT_TYPE, content_type),
-            (header::CACHE_CONTROL, "no-store"),
-        ],
-        body,
-    )
-        .into_response()
+body {
+    margin: 0;
+    background: #fafafa;
+}
+
+.swagger-ui .operation-servers {
+    display: none;
+}
+"#;
+
+async fn api_missing() -> StatusCode {
+    StatusCode::NOT_FOUND
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -159,57 +149,6 @@ fn parse_set(rows: Vec<SetPosition>) -> Result<Vec<Position>, String> {
     Ok(parsed)
 }
 
-#[utoipa::path(
-    get,
-    path = "/api/orders",
-    tag = "orders",
-    responses(
-        (status = 200, description = "Orders newest first, including ones the desk refused to forward", body = Vec<OrderBody>),
-        (status = 500, description = "The book could not be read", body = ErrorBody)
-    )
-)]
-async fn orders(State(desk): State<Shared>) -> Result<Json<Vec<OrderBody>>, ApiError> {
-    let desk = lock(&desk)?;
-    let rows = desk.orders()?.into_iter().map(OrderBody::from).collect();
-    Ok(Json(rows))
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/fills",
-    tag = "fills",
-    responses(
-        (status = 200, description = "Fills newest first", body = Vec<FillBody>),
-        (status = 500, description = "The book could not be read", body = ErrorBody)
-    )
-)]
-async fn fills(State(desk): State<Shared>) -> Result<Json<Vec<FillBody>>, ApiError> {
-    let desk = lock(&desk)?;
-    let rows = desk.fills()?.into_iter().map(FillBody::from).collect();
-    Ok(Json(rows))
-}
-
-#[utoipa::path(
-    post,
-    path = "/api/orders",
-    tag = "orders",
-    request_body = CreateOrder,
-    responses(
-        (status = 201, description = "The gateway filled the order and the strategy book was updated", body = SubmissionBody),
-        (status = 422, description = "The order failed validation or a risk check", body = ErrorBody),
-        (status = 502, description = "The gateway refused the order", body = ErrorBody),
-        (status = 500, description = "The book could not be written", body = ErrorBody)
-    )
-)]
-async fn create_order(
-    State(desk): State<Shared>,
-    Json(input): Json<CreateOrder>,
-) -> Result<(StatusCode, Json<SubmissionBody>), ApiError> {
-    let mut desk = lock(&desk)?;
-    let submission = desk.submit(input)?;
-    Ok((StatusCode::CREATED, Json(SubmissionBody::from(submission))))
-}
-
 fn lock(desk: &Shared) -> Result<std::sync::MutexGuard<'_, Desk>, ApiError> {
     desk.lock()
         .map_err(|_| ApiError::storage("The position book lock was poisoned."))
@@ -235,81 +174,6 @@ impl From<Position> for PositionBody {
             side,
             avg_price: money(position.avg_price),
             realized_pnl: money(position.realized_pnl),
-        }
-    }
-}
-
-#[derive(Serialize, ToSchema)]
-struct OrderBody {
-    id: String,
-    strategy: String,
-    instrument_id: String,
-    side: Side,
-    quantity: i64,
-    price: String,
-    status: OrderStatus,
-    gateway: String,
-    reason: Option<String>,
-    created_at: String,
-}
-
-impl From<Order> for OrderBody {
-    fn from(order: Order) -> Self {
-        Self {
-            id: order.id,
-            strategy: order.strategy,
-            instrument_id: order.instrument_id,
-            side: order.side,
-            quantity: order.quantity,
-            price: money(order.price),
-            status: order.status,
-            gateway: order.gateway,
-            reason: order.reason,
-            created_at: order.created_at.to_rfc3339(),
-        }
-    }
-}
-
-#[derive(Serialize, ToSchema)]
-struct FillBody {
-    id: String,
-    order_id: String,
-    strategy: String,
-    instrument_id: String,
-    side: Side,
-    quantity: i64,
-    price: String,
-    filled_at: String,
-}
-
-impl From<Fill> for FillBody {
-    fn from(fill: Fill) -> Self {
-        Self {
-            id: fill.id,
-            order_id: fill.order_id,
-            strategy: fill.strategy,
-            instrument_id: fill.instrument_id,
-            side: fill.side,
-            quantity: fill.quantity,
-            price: money(fill.price),
-            filled_at: fill.filled_at.to_rfc3339(),
-        }
-    }
-}
-
-#[derive(Serialize, ToSchema)]
-struct SubmissionBody {
-    order: OrderBody,
-    fill: Option<FillBody>,
-    position: Option<PositionBody>,
-}
-
-impl From<Submission> for SubmissionBody {
-    fn from(submission: Submission) -> Self {
-        Self {
-            order: submission.order.into(),
-            fill: submission.fill.map(FillBody::from),
-            position: submission.position.map(PositionBody::from),
         }
     }
 }
@@ -368,9 +232,7 @@ mod tests {
         let positions = paths.get("/api/positions").expect("positions path");
         assert!(positions.get.is_some());
         assert!(positions.put.is_some());
-        assert!(paths.contains_key("/api/fills"));
-        let orders = paths.get("/api/orders").expect("orders path");
-        assert!(orders.get.is_some());
-        assert!(orders.post.is_some());
+        assert!(!paths.contains_key("/api/orders"));
+        assert!(!paths.contains_key("/api/fills"));
     }
 }
