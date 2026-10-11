@@ -10,7 +10,8 @@ use utoipa::{IntoParams, OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::model::{
-    money, normalize_strategy_name, CreateOrder, Fill, Order, OrderStatus, Position, SetPosition, Side,
+    money, normalize_strategy_name, CreateOrder, Fill, Order, OrderStatus, Position, SetPosition,
+    Side,
 };
 use crate::store::{Desk, DeskError, Submission};
 
@@ -56,7 +57,10 @@ pub fn router(desk: Shared) -> Router {
 }
 
 async fn index() -> Response {
-    asset(include_str!("../static/index.html"), "text/html; charset=utf-8")
+    asset(
+        include_str!("../static/index.html"),
+        "text/html; charset=utf-8",
+    )
 }
 
 async fn css() -> Response {
@@ -64,7 +68,10 @@ async fn css() -> Response {
 }
 
 async fn javascript() -> Response {
-    asset(include_str!("../static/app.js"), "text/javascript; charset=utf-8")
+    asset(
+        include_str!("../static/app.js"),
+        "text/javascript; charset=utf-8",
+    )
 }
 
 fn asset(body: &'static str, content_type: &'static str) -> Response {
@@ -204,7 +211,8 @@ async fn create_order(
 }
 
 fn lock(desk: &Shared) -> Result<std::sync::MutexGuard<'_, Desk>, ApiError> {
-    desk.lock().map_err(|_| ApiError::storage("The position book lock was poisoned."))
+    desk.lock()
+        .map_err(|_| ApiError::storage("The position book lock was poisoned."))
 }
 
 #[derive(Serialize, ToSchema)]
@@ -339,6 +347,15 @@ impl From<DeskError> for ApiError {
     }
 }
 
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        let body = Json(ErrorBody {
+            error: self.message,
+        });
+        (self.status, body).into_response()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::ApiDoc;
@@ -355,12 +372,5 @@ mod tests {
         let orders = paths.get("/api/orders").expect("orders path");
         assert!(orders.get.is_some());
         assert!(orders.post.is_some());
-    }
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        let body = Json(ErrorBody { error: self.message });
-        (self.status, body).into_response()
     }
 }

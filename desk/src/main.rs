@@ -27,10 +27,8 @@ async fn main() {
             std::process::exit(1);
         });
     println!("Desk is at http://127.0.0.1:{port}");
-    axum::serve(listener, app)
-        .await
-        .unwrap_or_else(|error| {
-            eprintln!("Desk stopped: {error}");
-            std::process::exit(1);
-        });
+    axum::serve(listener, app).await.unwrap_or_else(|error| {
+        eprintln!("Desk stopped: {error}");
+        std::process::exit(1);
+    });
 }

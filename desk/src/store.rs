@@ -66,7 +66,11 @@ impl Desk {
                 std::fs::create_dir_all(parent)?;
             }
         }
-        Self::from_conn(Connection::open(path)?, RiskPipeline::default(), Box::new(PaperBroker))
+        Self::from_conn(
+            Connection::open(path)?,
+            RiskPipeline::default(),
+            Box::new(PaperBroker),
+        )
     }
 
     #[cfg(test)]
@@ -356,9 +360,10 @@ pub enum DeskError {
 impl std::fmt::Display for DeskError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Invalid(message) | Self::Risk(message) | Self::Broker(message) | Self::Storage(message) => {
-                formatter.write_str(message)
-            }
+            Self::Invalid(message)
+            | Self::Risk(message)
+            | Self::Broker(message)
+            | Self::Storage(message) => formatter.write_str(message),
         }
     }
 }
@@ -455,19 +460,34 @@ mod tests {
     #[test]
     fn the_same_instrument_keeps_a_separate_book_per_strategy() {
         let mut desk = Desk::open_in_memory().unwrap();
-        desk.submit(order_for("opening-drive", "RELIANCE.NSE", Side::Buy, 10, "2450"))
-            .unwrap();
+        desk.submit(order_for(
+            "opening-drive",
+            "RELIANCE.NSE",
+            Side::Buy,
+            10,
+            "2450",
+        ))
+        .unwrap();
         desk.submit(order_for("hedge", "RELIANCE.NSE", Side::Sell, 4, "2460"))
             .unwrap();
-        desk.submit(order_for("opening-drive", "RELIANCE.NSE", Side::Sell, 3, "2465"))
-            .unwrap();
+        desk.submit(order_for(
+            "opening-drive",
+            "RELIANCE.NSE",
+            Side::Sell,
+            3,
+            "2465",
+        ))
+        .unwrap();
 
         let positions = desk.positions().unwrap();
         let opening = positions
             .iter()
             .find(|position| position.strategy == "opening-drive")
             .unwrap();
-        let hedge = positions.iter().find(|position| position.strategy == "hedge").unwrap();
+        let hedge = positions
+            .iter()
+            .find(|position| position.strategy == "hedge")
+            .unwrap();
         assert_eq!(opening.quantity, 7);
         assert_eq!(hedge.quantity, -4);
     }
@@ -529,8 +549,14 @@ mod tests {
             set_row("hedge", "RELIANCE.NSE", -4, "2460", "12.5"),
         ])
         .unwrap();
-        desk.set_positions(vec![set_row("opening-drive", "RELIANCE.NSE", 7, "2455", "40")])
-            .unwrap();
+        desk.set_positions(vec![set_row(
+            "opening-drive",
+            "RELIANCE.NSE",
+            7,
+            "2455",
+            "40",
+        )])
+        .unwrap();
 
         let opening = desk.positions_for_strategy("opening-drive").unwrap();
         assert_eq!(opening.len(), 1);

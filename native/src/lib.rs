@@ -74,9 +74,9 @@ pub fn parse_instrument_id(value: &str) -> Result<IndiaSymbol, ParseError> {
     if text.is_empty() || text.chars().any(char::is_whitespace) {
         return Err(ParseError(format!("Invalid instrument id {value:?}")));
     }
-    let (symbol, venue) = text.rsplit_once('.').ok_or_else(|| {
-        ParseError(format!("Invalid instrument id {value:?}"))
-    })?;
+    let (symbol, venue) = text
+        .rsplit_once('.')
+        .ok_or_else(|| ParseError(format!("Invalid instrument id {value:?}")))?;
     if symbol.is_empty() || !VENUES.contains(&venue) {
         return Err(ParseError(format!("Invalid instrument id {value:?}")));
     }
@@ -166,11 +166,18 @@ fn split_option(symbol: &str) -> Result<Option<(String, String, String, OptionKi
 fn validate_root(root: &str) -> Result<(), ParseError> {
     let pieces: Vec<&str> = root.split('-').collect();
     if pieces.is_empty() || pieces.iter().any(|piece| piece.is_empty()) {
-        return Err(ParseError("Instrument symbol contains an empty component".into()));
+        return Err(ParseError(
+            "Instrument symbol contains an empty component".into(),
+        ));
     }
     for piece in pieces {
-        if !piece.chars().all(|char| char.is_ascii_uppercase() || char.is_ascii_digit() || char == '&') {
-            return Err(ParseError(format!("Unsupported character in symbol component {piece:?}")));
+        if !piece
+            .chars()
+            .all(|char| char.is_ascii_uppercase() || char.is_ascii_digit() || char == '&')
+        {
+            return Err(ParseError(format!(
+                "Unsupported character in symbol component {piece:?}"
+            )));
         }
     }
     Ok(())
@@ -193,7 +200,9 @@ fn is_strike(value: &str) -> bool {
     let fraction = parts.next();
     whole.chars().all(|char| char.is_ascii_digit())
         && !whole.is_empty()
-        && fraction.map(|text| !text.is_empty() && text.chars().all(|char| char.is_ascii_digit())).unwrap_or(true)
+        && fraction
+            .map(|text| !text.is_empty() && text.chars().all(|char| char.is_ascii_digit()))
+            .unwrap_or(true)
         && parts.next().is_none()
 }
 
