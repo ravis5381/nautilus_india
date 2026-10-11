@@ -10,7 +10,7 @@ import {
 import type { Position } from "@/lib/api"
 import { formatQuantity } from "@/lib/format"
 
-import type { BookStatus } from "./use-book"
+import { ALL_STRATEGIES, type BookStatus } from "./use-book"
 
 type PositionTableProps = {
   rows: Position[]
@@ -37,7 +37,9 @@ export function PositionTable({ rows, strategy, status }: PositionTableProps) {
   if (open.length === 0) {
     return (
       <p className="text-muted-foreground">
-        No open position in {strategy}.
+        {strategy === ALL_STRATEGIES
+          ? "No open position."
+          : `No open position in ${strategy}.`}
       </p>
     )
   }

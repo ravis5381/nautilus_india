@@ -163,7 +163,7 @@ impl CreateOrder {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetPosition {
-    /// Book this quantity belongs to. The same instrument can be held under another strategy.
+    /// Book this quantity belongs to. The same instrument can be held under another strategy. `all` is reserved.
     #[schema(example = "opening-drive")]
     pub strategy: String,
     /// Canonical id such as `RELIANCE.NSE` or `NIFTY-20260625-25000-CE.NFO`.
@@ -216,6 +216,9 @@ fn normalize_strategy(value: &str) -> Result<String, String> {
     if strategy.is_empty() {
         return Err("Strategy name is required.".into());
     }
+    if strategy.eq_ignore_ascii_case("all") {
+        return Err("all is reserved and cannot be set.".into());
+    }
     if strategy.chars().count() > 40 {
         return Err("Strategy name must be 40 characters or fewer.".into());
     }
@@ -228,6 +231,27 @@ fn normalize_strategy(value: &str) -> Result<String, String> {
         );
     }
     Ok(strategy)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SetPosition;
+
+    #[test]
+    fn all_cannot_be_set_as_a_strategy() {
+        for name in ["all", "All", "ALL", " all "] {
+            let error = SetPosition {
+                strategy: name.into(),
+                instrument_id: "RELIANCE.NSE".into(),
+                quantity: 1,
+                avg_price: "1".into(),
+                realized_pnl: "0".into(),
+            }
+            .parse()
+            .expect_err(name);
+            assert_eq!(error, "all is reserved and cannot be set.");
+        }
+    }
 }
 
 pub fn money(value: Decimal) -> String {

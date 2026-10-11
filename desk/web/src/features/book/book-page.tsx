@@ -1,12 +1,6 @@
 import { LoginPage } from "@/features/auth/login-page"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ThemeToggle } from "@/components/theme-toggle"
 
 import { PositionTable } from "./position-table"
@@ -29,10 +23,9 @@ export function BookPage() {
       <header className="flex flex-col gap-3">
         <div className="flex items-start justify-between gap-4">
           <div className="grid gap-1">
-            <p className="text-xs tracking-widest text-muted-foreground uppercase">
-              India desk
-            </p>
-            <h1 className="text-4xl font-medium tracking-tight">Positions</h1>
+            <h1 className="text-4xl font-medium tracking-tight">
+              Option Desk Positions
+            </h1>
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <Button variant="link" asChild>
@@ -54,12 +47,7 @@ export function BookPage() {
       <Card>
         <CardHeader>
           <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div className="grid gap-1">
-              <CardTitle className="text-lg">Open book</CardTitle>
-              <CardDescription>
-                Each strategy keeps its own quantity for the same instrument.
-              </CardDescription>
-            </div>
+            <CardTitle className="text-lg">Open book</CardTitle>
             <StrategyField
               strategies={book.strategies}
               selected={book.selected}

@@ -21,7 +21,7 @@ pub type Shared = Arc<Mutex<Desk>>;
 #[derive(OpenApi)]
 #[openapi(
     info(
-        title = "India desk",
+        title = "Option Desk Positions",
         version = "0.1.0",
         description = "Position book. Each strategy keeps its own quantity for an instrument."
     ),

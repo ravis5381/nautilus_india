@@ -47,9 +47,7 @@ export function LoginPage({ onSuccess }: LoginPageProps) {
     <div className="mx-auto flex min-h-svh w-full max-w-md flex-col justify-center gap-6 px-4 py-8">
       <div className="flex items-start justify-between gap-4">
         <div className="grid gap-1">
-          <p className="text-xs tracking-widest text-muted-foreground uppercase">
-            India desk
-          </p>
+          <p className="text-sm text-muted-foreground">Option Desk Positions</p>
           <h1 className="text-4xl font-medium tracking-tight">Sign in</h1>
         </div>
         <ThemeToggle />

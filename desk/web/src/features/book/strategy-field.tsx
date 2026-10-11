@@ -1,3 +1,4 @@
+import { ALL_STRATEGIES } from "@/features/book/use-book"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -35,7 +36,7 @@ export function StrategyField({
         <SelectContent>
           {strategies.map((strategy) => (
             <SelectItem key={strategy} value={strategy}>
-              {strategy}
+              {strategy === ALL_STRATEGIES ? "All" : strategy}
             </SelectItem>
           ))}
         </SelectContent>
