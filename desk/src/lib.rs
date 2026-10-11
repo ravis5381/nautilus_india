@@ -1,4 +1,5 @@
 mod api;
+mod auth;
 #[cfg(test)]
 mod broker;
 mod model;
@@ -15,7 +16,7 @@ use axum::Router;
 
 use crate::store::Desk;
 
-pub fn router(path: impl AsRef<Path>) -> Result<Router, store::DeskError> {
+pub fn router(path: impl AsRef<Path>, password: String) -> Result<Router, store::DeskError> {
     let desk = Desk::open(path)?;
-    Ok(api::router(Arc::new(Mutex::new(desk))))
+    Ok(api::router(Arc::new(Mutex::new(desk)), password))
 }

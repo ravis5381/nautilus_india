@@ -2,15 +2,17 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use axum::extract::{Query, State};
-use axum::http::StatusCode;
+use axum::http::{header, StatusCode};
+use axum::middleware;
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use tower_http::services::{ServeDir, ServeFile};
 use utoipa::{IntoParams, OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
+use crate::auth::{self, Gate};
 use crate::model::{money, normalize_strategy_name, Position, SetPosition, Side};
 use crate::store::{Desk, DeskError};
 
@@ -23,25 +25,42 @@ pub type Shared = Arc<Mutex<Desk>>;
         version = "0.1.0",
         description = "Position book. Each strategy keeps its own quantity for an instrument."
     ),
-    paths(positions, set_positions),
-    components(schemas(PositionBody, SetPosition, ErrorBody, Side)),
-    tags((name = "positions", description = "Strategy books"))
+    paths(positions, set_positions, login, logout),
+    components(schemas(PositionBody, SetPosition, LoginBody, ErrorBody, Side)),
+    tags(
+        (name = "positions", description = "Strategy books"),
+        (name = "session", description = "Desk sign-in")
+    )
 )]
 struct ApiDoc;
 
-pub fn router(desk: Shared) -> Router {
+#[derive(Clone)]
+struct AppState {
+    desk: Shared,
+    gate: Gate,
+}
+
+pub fn router(desk: Shared, password: String) -> Router {
+    let gate = Gate::new(password);
+    let state = AppState {
+        desk,
+        gate: gate.clone(),
+    };
     let dist = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("web/dist");
     let index = dist.join("index.html");
     let api = Router::new()
+        .route("/login", post(login))
+        .route("/logout", post(logout))
         .route("/positions", get(positions).put(set_positions))
-        .fallback(api_missing)
-        .with_state(desk);
+        .fallback(api_missing);
 
     Router::new()
         .nest("/api", api)
         .merge(SwaggerUi::new("/docs").url("/api/openapi.json", ApiDoc::openapi()))
         .route("/docs/index.css", get(docs_css))
         .fallback_service(ServeDir::new(dist).not_found_service(ServeFile::new(index)))
+        .with_state(state)
+        .layer(middleware::from_fn_with_state(gate, auth::guard))
 }
 
 async fn docs_css() -> impl IntoResponse {
@@ -94,10 +113,10 @@ struct PositionQuery {
     )
 )]
 async fn positions(
-    State(desk): State<Shared>,
+    State(state): State<AppState>,
     Query(query): Query<PositionQuery>,
 ) -> Result<Json<Vec<PositionBody>>, ApiError> {
-    let desk = lock(&desk)?;
+    let desk = lock(&state.desk)?;
     let rows = match query.strategy {
         Some(strategy) => {
             let strategy = normalize_strategy_name(&strategy).map_err(DeskError::Invalid)?;
@@ -120,11 +139,11 @@ async fn positions(
     )
 )]
 async fn set_positions(
-    State(desk): State<Shared>,
+    State(state): State<AppState>,
     Json(input): Json<Vec<SetPosition>>,
 ) -> Result<Json<Vec<PositionBody>>, ApiError> {
     let positions = parse_set(input).map_err(DeskError::Invalid)?;
-    let mut desk = lock(&desk)?;
+    let mut desk = lock(&state.desk)?;
     let stored = desk.set_positions(positions)?;
     Ok(Json(stored.into_iter().map(PositionBody::from).collect()))
 }
@@ -147,6 +166,52 @@ fn parse_set(rows: Vec<SetPosition>) -> Result<Vec<Position>, String> {
         parsed.push(position);
     }
     Ok(parsed)
+}
+
+#[derive(Deserialize, ToSchema)]
+struct LoginBody {
+    password: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/login",
+    tag = "session",
+    request_body = LoginBody,
+    responses(
+        (status = 204, description = "The password was accepted and a session cookie was set"),
+        (status = 401, description = "The password is not right", body = ErrorBody)
+    )
+)]
+async fn login(State(state): State<AppState>, Json(body): Json<LoginBody>) -> Response {
+    if !state.gate.accepts(&body.password) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorBody {
+                error: "That password is not right.".into(),
+            }),
+        )
+            .into_response();
+    }
+    (
+        StatusCode::NO_CONTENT,
+        [(header::SET_COOKIE, state.gate.session_cookie())],
+    )
+        .into_response()
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/logout",
+    tag = "session",
+    responses((status = 204, description = "The session cookie was cleared"))
+)]
+async fn logout() -> Response {
+    (
+        StatusCode::NO_CONTENT,
+        [(header::SET_COOKIE, Gate::clear_cookie())],
+    )
+        .into_response()
 }
 
 fn lock(desk: &Shared) -> Result<std::sync::MutexGuard<'_, Desk>, ApiError> {
@@ -222,8 +287,15 @@ impl IntoResponse for ApiError {
 
 #[cfg(test)]
 mod tests {
-    use super::ApiDoc;
+    use std::sync::{Arc, Mutex};
+
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
     use utoipa::OpenApi;
+
+    use super::ApiDoc;
+    use crate::store::Desk;
 
     #[test]
     fn openapi_lists_the_book_routes() {
@@ -232,7 +304,86 @@ mod tests {
         let positions = paths.get("/api/positions").expect("positions path");
         assert!(positions.get.is_some());
         assert!(positions.put.is_some());
+        assert!(paths.get("/api/login").unwrap().post.is_some());
         assert!(!paths.contains_key("/api/orders"));
         assert!(!paths.contains_key("/api/fills"));
+    }
+
+    #[tokio::test]
+    async fn the_book_stays_closed_until_the_password_is_accepted() {
+        let app = super::router(
+            Arc::new(Mutex::new(Desk::open_in_memory().unwrap())),
+            "secret".into(),
+        );
+
+        let closed = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/positions")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(closed.status(), StatusCode::UNAUTHORIZED);
+
+        let rejected = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"password":"nope"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+
+        let signed_in = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/login")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"password":"secret"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(signed_in.status(), StatusCode::NO_CONTENT);
+        let cookie = signed_in
+            .headers()
+            .get("set-cookie")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+
+        let open = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/positions")
+                    .header("cookie", cookie)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(open.status(), StatusCode::OK);
+
+        let docs = app
+            .oneshot(Request::builder().uri("/docs").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(docs.status(), StatusCode::SEE_OTHER);
+        assert_eq!(docs.headers().get("location").unwrap(), "/");
     }
 }

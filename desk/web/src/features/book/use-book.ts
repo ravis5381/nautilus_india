@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react"
 
-import { fetchPositions, type Position } from "@/lib/api"
+import { fetchPositions, signOut, SignInRequired, type Position } from "@/lib/api"
 
 const STORAGE_KEY = "desk.bookStrategy"
 
-export type BookStatus = "loading" | "ready" | "error"
+export type BookStatus = "loading" | "unauthorized" | "ready" | "error"
 
 export function useBook() {
   const [book, setBook] = useState<Position[]>([])
@@ -12,6 +12,7 @@ export function useBook() {
     () => localStorage.getItem(STORAGE_KEY) ?? "",
   )
   const [status, setStatus] = useState<BookStatus>("loading")
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -21,13 +22,15 @@ export function useBook() {
         setBook(rows)
         setStatus("ready")
       })
-      .catch(() => {
-        if (!cancelled) setStatus("error")
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setBook([])
+        setStatus(error instanceof SignInRequired ? "unauthorized" : "error")
       })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [attempt])
 
   const strategies = useMemo(() => {
     return [
@@ -50,5 +53,16 @@ export function useBook() {
     localStorage.setItem(STORAGE_KEY, strategy)
   }
 
-  return { rows, strategies, selected: active, choose, status }
+  function reload() {
+    setStatus("loading")
+    setAttempt((value) => value + 1)
+  }
+
+  async function lock() {
+    await signOut()
+    setBook([])
+    setStatus("unauthorized")
+  }
+
+  return { rows, strategies, selected: active, choose, status, reload, lock }
 }

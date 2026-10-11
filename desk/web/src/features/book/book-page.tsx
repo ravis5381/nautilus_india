@@ -1,3 +1,4 @@
+import { LoginPage } from "@/features/auth/login-page"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -16,6 +17,13 @@ import { useBook } from "./use-book"
 export function BookPage() {
   const book = useBook()
 
+  if (book.status === "loading") {
+    return <p className="px-4 py-8 text-sm text-muted-foreground">Checking the desk.</p>
+  }
+  if (book.status === "unauthorized") {
+    return <LoginPage onSuccess={book.reload} />
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8">
       <header className="flex flex-col gap-3">
@@ -29,6 +37,9 @@ export function BookPage() {
           <div className="flex shrink-0 items-center gap-1">
             <Button variant="link" asChild>
               <a href="/docs">API docs</a>
+            </Button>
+            <Button variant="outline" onClick={() => void book.lock()}>
+              Sign out
             </Button>
             <ThemeToggle />
           </div>
