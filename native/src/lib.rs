@@ -1,7 +1,6 @@
 //! Canonical instrument-id grammar shared with `nautilus_india.symbols`.
 //!
-//! The Python package is the runtime interface. This crate is the place to
-//! move batch decoding once ClickHouse scans need to stay off the GIL. It does
+//! The Python package and the desk both parse ids through this crate. It does
 //! not link Nautilus model types: those objects are constructed in Python from
 //! the installed `nautilus_trader` wheel.
 
@@ -40,6 +39,33 @@ impl fmt::Display for ParseError {
 }
 
 impl std::error::Error for ParseError {}
+
+impl IndiaSymbol {
+    /// Canonical `{symbol}.{venue}` id, including a hyphenated root such as `BAJAJ-AUTO`.
+    pub fn instrument_id(&self) -> String {
+        match self.product {
+            Product::Cash => format!("{}.{}", self.root, self.venue),
+            Product::Future => {
+                let expiry = compact_expiry(self.expiry.as_deref());
+                format!("{}-{expiry}-FUT.{}", self.root, self.venue)
+            }
+            Product::Option => {
+                let expiry = compact_expiry(self.expiry.as_deref());
+                let strike = self.strike.as_deref().unwrap_or("");
+                let kind = match self.option_kind {
+                    Some(OptionKind::Call) => "CE",
+                    Some(OptionKind::Put) => "PE",
+                    None => "",
+                };
+                format!("{}-{expiry}-{strike}-{kind}.{}", self.root, self.venue)
+            }
+        }
+    }
+}
+
+fn compact_expiry(expiry: Option<&str>) -> String {
+    expiry.unwrap_or("").replace('-', "")
+}
 
 const VENUES: &[&str] = &["NSE", "BSE", "NFO", "BFO", "CDS", "MCX"];
 
@@ -240,5 +266,11 @@ mod tests {
     #[test]
     fn rejects_an_impossible_expiry() {
         assert!(parse_instrument_id("NIFTY-20260231-FUT.NFO").is_err());
+    }
+
+    #[test]
+    fn canonicalizes_a_hyphenated_option_root() {
+        let option = parse_instrument_id("bajaj-auto-20260625-8500-ce.nfo").unwrap();
+        assert_eq!(option.instrument_id(), "BAJAJ-AUTO-20260625-8500-CE.NFO");
     }
 }
