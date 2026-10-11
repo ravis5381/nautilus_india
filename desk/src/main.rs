@@ -1,5 +1,4 @@
 use std::net::IpAddr;
-use std::path::PathBuf;
 
 use india_desk::router;
 
@@ -15,13 +14,8 @@ async fn main() {
         .ok()
         .and_then(|value| value.parse::<u16>().ok())
         .unwrap_or(8787);
-    let database = std::env::var("DESK_DB").unwrap_or_else(|_| {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("data")
-            .join("positions.db")
-            .display()
-            .to_string()
-    });
+    let database = std::env::var("DESK_DB")
+        .unwrap_or_else(|_| india_desk::default_database().display().to_string());
 
     let password = std::env::var("DESK_PASSWORD").unwrap_or_else(|_| {
         eprintln!("Set DESK_PASSWORD in .env or the environment before starting the desk.");
@@ -60,12 +54,9 @@ fn listen_url(address: IpAddr, port: u16) -> String {
 }
 
 fn load_env_file() {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join(".env");
-    if !path.is_file() {
+    let Some(path) = india_desk::env_file() else {
         return;
-    }
+    };
     dotenvy::from_path(&path).unwrap_or_else(|error| {
         eprintln!("Could not read {}: {error}", path.display());
         std::process::exit(1);

@@ -3,6 +3,7 @@ mod auth;
 #[cfg(test)]
 mod broker;
 mod model;
+mod paths;
 #[cfg(test)]
 mod position;
 #[cfg(test)]
@@ -16,6 +17,8 @@ use std::sync::{Arc, Mutex};
 use axum::Router;
 
 use crate::store::Desk;
+
+pub use paths::{default_database, env_file};
 
 pub fn router(path: impl AsRef<Path>, password: String) -> Result<Router, store::DeskError> {
     let desk = Desk::open(path)?;

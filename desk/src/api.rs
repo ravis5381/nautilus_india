@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use axum::extract::{Query, State};
@@ -48,7 +47,7 @@ pub fn router(desk: Shared, password: String) -> Router {
         desk,
         gate: gate.clone(),
     };
-    let dist = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("web/dist");
+    let dist = crate::paths::web_dist();
     let index = dist.join("index.html");
     let api = Router::new()
         .route("/login", post(login))
