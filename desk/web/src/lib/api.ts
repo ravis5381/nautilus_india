@@ -29,3 +29,29 @@ export async function fetchPositions(): Promise<Position[]> {
 export async function signOut(): Promise<void> {
   await fetch("/api/logout", { method: "POST" })
 }
+
+export type PositionUpdate = {
+  strategy: string
+  instrument_id: string
+  quantity: number
+  avg_price: string
+  realized_pnl: string
+}
+
+export async function setPosition(update: PositionUpdate): Promise<Position[]> {
+  const response = await fetch("/api/positions", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify([update]),
+  })
+  if (response.status === 401) {
+    throw new SignInRequired()
+  }
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string
+    } | null
+    throw new Error(payload?.error ?? "The position could not be set.")
+  }
+  return response.json() as Promise<Position[]>
+}

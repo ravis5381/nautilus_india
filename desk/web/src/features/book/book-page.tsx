@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ThemeToggle } from "@/components/theme-toggle"
 
 import { PositionTable } from "./position-table"
+import { SetPositionCard } from "./set-position-card"
 import { StrategyField } from "./strategy-field"
 import { SummaryCards } from "./summary-cards"
 import { useBook } from "./use-book"
@@ -63,6 +64,15 @@ export function BookPage() {
           />
         </CardContent>
       </Card>
+
+      <SetPositionCard
+        strategy={book.selected}
+        onSaved={(strategy) => {
+          book.choose(strategy)
+          book.refresh()
+        }}
+        onSignOut={() => void book.lock()}
+      />
     </div>
   )
 }

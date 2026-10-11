@@ -70,13 +70,17 @@ export function useBook() {
     setAttempt((value) => value + 1)
   }
 
+  function refresh() {
+    setAttempt((value) => value + 1)
+  }
+
   async function lock() {
     await signOut()
     setBook([])
     setStatus("unauthorized")
   }
 
-  return { rows, strategies, selected: active, choose, status, reload, lock }
+  return { rows, strategies, selected: active, choose, status, reload, refresh, lock }
 }
 
 function aggregateByInstrument(rows: Position[]): Position[] {
